@@ -19,6 +19,12 @@
 import re
 import xml.etree.ElementTree as ET
 
+# lxml is a drop in replacement for ElementTree that is widely used.
+# However it uses libxml2 behind the scenes, and if distro versions
+# are compiled against a system libxml2, lxml usage collides with
+# libvirt usage and results in segfaults:
+# https://bugzilla.redhat.com/show_bug.cgi?id=1544019
+# import lxml.etree as ET
 import libxml2
 
 from . import util
