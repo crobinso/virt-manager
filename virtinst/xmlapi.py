@@ -21,6 +21,7 @@ import functools
 import logging
 import re
 import xml.etree.ElementTree as ET
+import xml.dom.minidom as minidom
 
 # lxml is a drop in replacement for ElementTree that is widely used.
 # However it uses libxml2 behind the scenes, and if distro versions
@@ -530,5 +531,155 @@ class _ETreeAPI(_XMLBase):
             node.attrib.clear()
             node.text = None
 
+
+class _MinidomAPI(_XMLBase):
+    def __init__(self, xml):
+        _XMLBase.__init__(xml)
+        self._doc = minidom.parseString(xml)
+
+    def _sanitize_xml(self, xml):
+        return xml
+    def _node_tostring(self, node):
+        return node.toxml("utf-8").decode("utf-8")
+    def copy_api(self):
+        return _MinidomAPI(self._node_tostring(self._doc.documentElement))
+
+    def _xpath_lookup(self, fullxpath):
+        xpathobj = _XPath(fullxpath)
+        parent = self._doc.documentElement
+        segments = xpathobj.segments[1:]
+
+        def _find_segment_match(children, xpathseg, match_once):
+            ret = []
+            nodename = ""
+            if xpathseg.nsname:
+                nodename = xpathseg.nsname + ":"
+            nodename += xpathseg.nodename
+
+            condnum = xpathseg.condition_num
+            if condnum:
+                match_once = False
+
+            for child in children:
+                if (child.nodeType == child.ELEMENT_NODE and
+                    child.nodeName == nodename):
+                    if xpathseg.condition_prop:
+                        pval = self._node_get_property(child,
+                                xpathseg.condition_prop)
+                        if pval != xpathseg.condition_val:
+                            continue
+
+                    if match_once:
+                        return child
+                    ret.append(child)
+
+            if condnum:
+                if condnum not in range(len(ret) + 1):
+                    return None
+                return ret[condnum - 1]
+
+            return ret
+
+        while segments:
+            seg = segments[0]
+            segments = segments[1:]
+            parent = _find_segment_match(
+                    parent.childNodes, seg, bool(segments))
+            if not parent:
+                break
+
+        return util.listify(parent)
+
+    def count(self, xpath):
+        return len(self._xpath_lookup(xpath))
+    def _find(self, fullxpath):
+        nodes = self._xpath_lookup(fullxpath)
+        return (nodes and nodes[0] or None)
+
+    def _node_get_text(self, node):
+        if node.childNodes:
+            return node.childNodes[0].nodeValue
+    def _node_set_text(self, node, setval):
+        if setval is None:
+            if node.childNodes:
+                node.removeChild(node.childNodes[0])
+        else:
+            if node.childNodes:
+                node.childNodes[0].nodeValue = setval
+            else:
+                text = self._doc.createTextNode(setval)
+                node.appendChild(text)
+
+    def _node_get_property(self, node, propname):
+        if node.hasAttribute(propname):
+            return node.getAttribute(propname)
+    def _node_set_property(self, node, propname, setval):
+        if setval is None:
+            if node.hasAttribute(propname):
+                node.removeAttribute(propname)
+        else:
+            node.setAttribute(propname, setval)
+
+    def _node_new(self, xpathseg):
+        nsname = xpathseg.nsname
+        nodename = xpathseg.nodename
+        if not nsname:
+            return self._doc.createElement(nodename)
+
+        nsurl = self.NAMESPACES[nsname]
+        self._doc.documentElement.setAttribute("xmlns:%s" % nsname, nsurl)
+        return self._doc.createElementNS(nsurl, nsname + ":" + nodename)
+
+    def _node_add_child(self, parentxpath, parentnode, newnode):
+        ignore = parentxpath
+        def node_is_text(n):
+            return bool(n and n.nodeType == n.TEXT_NODE)
+
+        if not node_is_text(parentnode.lastChild):
+            prevsib = parentnode.previousSibling
+            if node_is_text(prevsib):
+                newlast = self._doc.createTextNode(prevsib.nodeValue)
+            else:
+                newlast = self._doc.createTextNode("\n")
+            parentnode.appendChild(newlast)
+
+        endtext = parentnode.lastChild.nodeValue
+        parentnode.lastChild.nodeValue += "  "
+        parentnode.appendChild(newnode)
+        parentnode.appendChild(self._doc.createTextNode(endtext))
+
+
+    def _node_remove_child(self, parentnode, childnode):
+        white = childnode.previousSibling
+        if white and white.nodeType == white.TEXT_NODE:
+            parentnode.removeChild(white)
+            white.unlink()
+
+        parentnode.removeChild(childnode)
+        childnode.unlink()
+
+        if all([n.nodeType == n.TEXT_NODE for n in parentnode.childNodes]):
+            for c in parentnode.childNodes[:]:
+                parentnode.removeChild(c)
+                c.unlink()
+
+    def _node_from_xml(self, xml):
+        return minidom.parseString(xml).documentElement
+
+    def _node_has_content(self, node):
+        if not node.nodeType == node.ELEMENT_NODE:
+            return False
+        return (node.hasChildNodes() or node.hasAttributes())
+
+    def node_clear(self, xpath):
+        node = self._find(xpath)
+        if node:
+            for c in (node.childNodes or [])[:]:
+                node.removeChild(c)
+            for c in list(node.attributes.keys()):
+                node.removeAttribute(c)
+
+
 XMLAPI = _Libxml2API
 XMLAPI = _ETreeAPI
+# XMLAPI = _MinidomAPI
