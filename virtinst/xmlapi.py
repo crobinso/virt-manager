@@ -16,6 +16,9 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 # MA 02110-1301 USA.
 
+import builtins
+import functools
+import logging
 import re
 import xml.etree.ElementTree as ET
 
@@ -30,6 +33,29 @@ import libxml2
 from . import util
 
 # pylint: disable=protected-access
+
+if "lxml.etree" not in str(ET):
+    # Hackery to make stock python ElementTree not alphabetize XML
+    # attributed. We basically stub out the global 'sorted' method
+    # when ElementTree is serializing XML.
+    _origserialize = ET._serialize_xml
+    _origsorted = builtins.sorted
+    def _fake_sorted(obj, **kwargs):
+        ignore = kwargs
+        return obj
+
+    @functools.wraps(_origserialize)
+    def _fake_serialize(*args, **kwargs):
+        try:
+            ET.__builtins__["sorted"] = _fake_sorted
+            return _origserialize(*args, **kwargs)
+        except Exception:
+            ET.__builtins__["sorted"] = builtins.sorted
+            logging.debug("Error with ElementTree hackery, "
+                    "attempting fallback", exc_info=True)
+            return _origserialize(*args, **kwargs)
+
+    ET._serialize_xml = _fake_serialize
 
 
 class _XPathSegment(object):
@@ -505,4 +531,4 @@ class _ETreeAPI(_XMLBase):
             node.text = None
 
 XMLAPI = _Libxml2API
-# XMLAPI = _ETreeAPI
+XMLAPI = _ETreeAPI
