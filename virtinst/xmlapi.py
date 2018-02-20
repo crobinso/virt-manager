@@ -39,12 +39,12 @@ if "lxml.etree" not in str(ET):
     # Hackery to make stock python ElementTree not alphabetize XML
     # attributed. We basically stub out the global 'sorted' method
     # when ElementTree is serializing XML.
-    _origserialize = ET._serialize_xml
     _origsorted = builtins.sorted
     def _fake_sorted(obj, **kwargs):
         ignore = kwargs
         return obj
 
+    _origserialize = ET._serialize_xml
     @functools.wraps(_origserialize)
     def _fake_serialize(*args, **kwargs):
         try:
@@ -55,8 +55,20 @@ if "lxml.etree" not in str(ET):
             logging.debug("Error with ElementTree hackery, "
                     "attempting fallback", exc_info=True)
             return _origserialize(*args, **kwargs)
-
     ET._serialize_xml = _fake_serialize
+
+    _origwritexml = minidom.Element.writexml
+    @functools.wraps(_origwritexml)
+    def _fake_writexml(*args, **kwargs):
+        try:
+            ET.__builtins__["sorted"] = _fake_sorted
+            return _origwritexml(*args, **kwargs)
+        except Exception:
+            ET.__builtins__["sorted"] = builtins.sorted
+            logging.debug("Error with minidom hackery, "
+                    "attempting fallback", exc_info=True)
+            return _origwritexml(*args, **kwargs)
+    minidom.Element.writexml = _fake_writexml
 
 
 class _XPathSegment(object):
@@ -682,4 +694,4 @@ class _MinidomAPI(_XMLBase):
 
 XMLAPI = _Libxml2API
 XMLAPI = _ETreeAPI
-# XMLAPI = _MinidomAPI
+#XMLAPI = _MinidomAPI
