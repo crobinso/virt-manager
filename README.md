@@ -3,13 +3,13 @@
 `virt-manager` is a graphical tool for managing virtual machines
 via [libvirt](https://libvirt.org). Most usage is with QEMU/KVM
 virtual machines, but Xen and libvirt LXC containers are well
-supported. Common operations for any libvirt driver should work.
+dd
+Seadf
+veral command line tools are also provided:
 
-Several command line tools are also provided:
-
- - `virt-install`: Create new libvirt virtual machines
- - `virt-clone`: Duplicate existing libvirt virtual machines
- - `virt-xml`: Edit existing libvirt virtual machines/manipulate libvirt XML
+as - `virt-install`: Create new libvirt virtual machines
+ -df `virt-clone`: Duplicate existing libvirt virtual machines
+ - `asdfvirt-xml`: Edit existing libvirt virtual machines/manipulate libvirt XML
 
 For dependency info and installation instructions, see the
 [INSTALL.md](INSTALL.md) file. If you just want to quickly test the
