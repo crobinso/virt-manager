@@ -4,11 +4,14 @@ on:
   # Run every 3 days at midnight
   schedule:
     - cron: '0 0 */3 * *'
+  push:
+    branches:
+      - main
 
 jobs:
   test-against-libvirt-git:
     # Only run this if on the main 'virt-manager/virt-manager' repo, not forks
-    if: "contains(github.repository, 'virt-manager/virt-manager')"
+    #if: "contains(github.repository, 'virt-manager/virt-manager')"
 
     runs-on: ubuntu-latest
     container:
