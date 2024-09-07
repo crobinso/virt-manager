@@ -468,9 +468,11 @@ class vmmConsolePages(vmmGObjectUI):
     # Resize and scaling APIs #
     ###########################
 
-    def _scroll_size_allocate(self, src_ignore, req):
+    def _scroll_size_allocate(self, src, req):
         if not self._viewer:
             return
+
+        scale_factor = src.get_scale_factor()
 
         res = self._viewer.console_get_desktop_resolution()
         if res is None:
@@ -481,6 +483,14 @@ class vmmConsolePages(vmmGObjectUI):
         scroll = self.widget("console-gfx-scroll")
         is_scale = self._viewer.console_get_scaling()
         is_resizeguest = self._viewer.console_get_resizeguest()
+
+        print()
+        print("scale_factor=%s" % scale_factor)
+        print("is_resizeguest=%s is_scale=%s" % (is_resizeguest, is_scale))
+        print("in_fullscreen=%s" % self._in_fullscreen)
+        print("vm desktop resolution=%s" % (res,))
+        print("scroll width=%s height=%s" % (req.width, req.height))
+        log.debug("")
 
         dx = 0
         dy = 0
