@@ -10,16 +10,23 @@ import signal
 import sys
 import traceback
 
+ORIGINAL_ARGV = sys.argv[:]
+
 import gi
 gi.require_version("Gdk", "3.0")
 gi.require_version("Gtk", "3.0")
 gi.require_version('LibvirtGLib', '1.0')
+from gi.repository import GLib
+from gi.repository import Gtk
 from gi.repository import LibvirtGLib
 
 from virtinst import BuildConfig
 from virtinst import cli
 from virtinst import log
 
+from . import config
+from .engine import vmmEngine
+from .error import vmmErrorDialog
 from .lib.testmock import CLITestOptionsClass
 
 # pygobject commit that I believe universally changed bool arguments
@@ -34,10 +41,14 @@ except (ValueError, AttributeError):  # pragma: no cover
     sys.exit(1)
 
 
+if Gtk.check_version(3, 22, 0):  # pragma: no cover
+    print("gtk3 3.22.0 or later is required.")
+    sys.exit(1)
+
+
 def _show_startup_error(msg, details):
     log.debug("Error starting virt-manager: %s\n%s", msg, details,
                   exc_info=True)
-    from .error import vmmErrorDialog
     err = vmmErrorDialog.get_instance()
     title = _("Error starting Virtual Machine Manager")
     errmsg = (_("Error starting Virtual Machine Manager: %(error)s") %
@@ -47,36 +58,6 @@ def _show_startup_error(msg, details):
                  title=title,
                  modal=True,
                  debug=False)
-
-
-def _import_gtk(leftovers):
-    # The never ending fork+gsettings problems now require us to
-    # import Gtk _after_ the fork. This creates a funny race, since we
-    # need to parse the command line arguments to know if we need to
-    # fork, but need to import Gtk before cli processing so it can
-    # handle --g-fatal-args. We strip out our flags first and pass the
-    # left overs to gtk
-    origargv = sys.argv
-    try:
-        sys.argv = origargv[:1] + leftovers[:]
-        from gi.repository import Gtk
-        leftovers = sys.argv[1:]
-
-        if Gtk.check_version(3, 22, 0):  # pragma: no cover
-            print("gtk3 3.22.0 or later is required.")
-            sys.exit(1)
-
-        # This will error if Gtk wasn't correctly initialized
-        Gtk.init()
-        globals()["Gtk"] = Gtk
-
-        # This ensures we can init gsettings correctly
-        from . import config
-        ignore = config
-    finally:
-        sys.argv = origargv
-
-    return leftovers
 
 
 def _setup_gsettings_path(schemadir):
@@ -98,7 +79,8 @@ def _fork_and_reexec():
     # We fork and setsid so that we drop the controlling
     # tty. This prevents libvirt's SSH tunnels from prompting
     # for user input if SSH keys aren't configured.
-    log.debug("Fork requested. re-execing argv=%s", sys.argv)
+    cmd = ORIGINAL_ARGV
+    log.debug("Fork requested. re-execing argv=%s", cmd)
 
     if os.fork() != 0:
         return 0
@@ -114,7 +96,7 @@ def _fork_and_reexec():
     os.open(os.devnull, os.O_RDWR)
     os.dup2(0, 1)
     os.dup2(0, 2)
-    return os.execl(sys.argv[0], *sys.argv)
+    return os.execl(cmd[0], *cmd)
 
 
 def parse_commandline():
@@ -157,11 +139,11 @@ def parse_commandline():
     parser.add_argument("--show-systray", action="store_true",
         help="Launch virt-manager only in system tray")
 
-    return parser.parse_known_args()
+    return parser.parse_args()
 
 
 def main():
-    (options, leftovers) = parse_commandline()
+    options = parse_commandline()
 
     cli.setupLogging("virt-manager", options.debug, False, False)
 
@@ -197,13 +179,6 @@ def main():
     if do_fork:
         return _fork_and_reexec()
 
-    leftovers = _import_gtk(leftovers)
-    Gtk = globals()["Gtk"]
-
-
-    if leftovers:
-        raise RuntimeError("Unhandled command line options '%s'" % leftovers)
-
     log.debug("PyGObject version: %d.%d.%d",
                   gi.version_info[0],
                   gi.version_info[1],
@@ -214,14 +189,12 @@ def main():
                   Gtk.get_micro_version())
 
     # Prime the vmmConfig cache
-    from . import config
     config.vmmConfig.get_instance(BuildConfig, CLITestOptions)
 
     # Add our icon dir to icon theme
     icon_theme = Gtk.IconTheme.get_default()
     icon_theme.prepend_search_path(BuildConfig.icon_dir)
 
-    from .engine import vmmEngine
     Gtk.Window.set_default_icon_name("virt-manager")
 
     show_window = None
@@ -261,7 +234,6 @@ def main():
     engine = vmmEngine.get_instance()
 
     # Actually exit when we receive ctrl-c
-    from gi.repository import GLib
     def _sigint_handler(user_data):
         ignore = user_data
         log.debug("Received KeyboardInterrupt. Exiting application.")
