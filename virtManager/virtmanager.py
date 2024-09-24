@@ -94,19 +94,17 @@ def _setup_gsettings_path(schemadir):
     subprocess.check_call([exe, "--strict", schemadir])
 
 
-def drop_tty():
+def _fork_and_reexec():
     # We fork and setsid so that we drop the controlling
     # tty. This prevents libvirt's SSH tunnels from prompting
-    # for user input if SSH keys/agent aren't configured.
+    # for user input if SSH keys aren't configured.
+    log.debug("Fork requested. re-execing argv=%s", sys.argv)
+
     if os.fork() != 0:
-        # pylint: disable=protected-access
-        os._exit(0)  # pragma: no cover
+        return 0
 
     os.setsid()
 
-
-def drop_stdio():
-    # This is part of the fork process described in drop_tty()
     for fd in range(0, 2):
         try:
             os.close(fd)
@@ -116,6 +114,7 @@ def drop_stdio():
     os.open(os.devnull, os.O_RDWR)
     os.dup2(0, 1)
     os.dup2(0, 2)
+    return os.execl(sys.argv[0], *sys.argv)
 
 
 def parse_commandline():
@@ -185,21 +184,22 @@ def main():
     # With F27 gnome+wayland we need to set these before GTK import
     os.environ["GSETTINGS_SCHEMA_DIR"] = BuildConfig.gsettings_dir
 
-    # Now we've got basic environment up & running we can fork
-    do_drop_stdio = False
-    if not options.no_fork and not options.debug:
-        drop_tty()
-        do_drop_stdio = True
+    do_fork = True
+    if options.no_fork or options.debug:
+        do_fork = False
+    if os.getsid(0) == os.getpid():
+        # Already forked
+        do_fork = False
 
         # Ignore SIGHUP, otherwise a serial console closing drops the whole app
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
 
+    if do_fork:
+        return _fork_and_reexec()
+
     leftovers = _import_gtk(leftovers)
     Gtk = globals()["Gtk"]
 
-    # Do this after the Gtk import so the user has a chance of seeing any error
-    if do_drop_stdio:
-        drop_stdio()
 
     if leftovers:
         raise RuntimeError("Unhandled command line options '%s'" % leftovers)
