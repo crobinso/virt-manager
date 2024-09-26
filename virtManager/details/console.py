@@ -511,6 +511,9 @@ class vmmConsolePages(vmmGObjectUI):
         viewer_alloc.width = req.width
         viewer_alloc.height = req.height
         self._viewer.console_size_allocate(viewer_alloc)
+        if hasattr(self._viewer, "_main_channel") and is_resizeguest:
+            self._viewer._main_channel.update_display(
+                    0, 0, 0, req.width, req.height, True)
 
     def _viewer_get_resizeguest_tooltip(self):
         tooltip = ""
