@@ -379,7 +379,7 @@ class vmmConsolePages(vmmGObjectUI):
         # constrained. This change makes sure the non-VM portions in that case
         # are also colored black, rather than the default theme window color.
         self.widget("console-gfx-viewport").modify_bg(
-                Gtk.StateType.NORMAL, Gdk.Color(0, 0, 0))
+                Gtk.StateType.NORMAL, Gdk.Color(0, 0, 255))
 
         self.widget("console-pages").set_show_tabs(False)
         self.widget("serial-pages").set_show_tabs(False)
