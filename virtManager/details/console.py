@@ -500,8 +500,11 @@ class vmmConsolePages(vmmGObjectUI):
         #
         # When neither are enabled, we force the viewer widget to the size
         # of VM resolution, so scroll bars show up when the window is shrunk.
-        if not is_scale and not is_resizeguest:
-            self._viewer.console_set_size_request(desktop_w, desktop_h)
+        if (not is_scale and not is_resizeguest
+            and src.get_scale_factor() == 1):
+            # XXX any use of VM desktop resolution when scaling factor
+            # != 1 is not reliable.
+            #self._viewer.console_set_size_request(desktop_w, desktop_h)
             return
 
         # Reset any previous size_request
