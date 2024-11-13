@@ -4,12 +4,16 @@ on:
   # Run every 3 days at midnight
   schedule:
     - cron: '0 0 */3 * *'
+  push:
+    paths:
+      - .github/workflows/test-against-libvirt-git.yml
+  pull_request:
+    paths:
+      - .github/workflows/test-against-libvirt-git.yml
+
 
 jobs:
   test-against-libvirt-git:
-    # Only run this if on the main 'virt-manager/virt-manager' repo, not forks
-    if: "contains(github.repository, 'virt-manager/virt-manager')"
-
     runs-on: ubuntu-latest
     container:
       image: fedora:latest
