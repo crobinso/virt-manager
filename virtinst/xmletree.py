@@ -4,39 +4,135 @@
 # This work is licensed under the GNU GPLv2 or later.
 # See the COPYING file in the top-level directory.
 
+import re
 import xml.etree.ElementTree as ET
 
 from .xmlbase import XMLBase, XPath
 
 
+class MyElement(ET.Element):
+    def __init__(self, *args, **kwargs):
+        self.virtinst_namespaces = {}
+        ET.Element.__init__(self, *args, **kwargs)
+
+    def virtinst_add_namespace(self, prefix, uri):
+        self.virtinst_namespaces[prefix] = uri
+
+
+def _fromstring(xml):
+    namespaces = {}
+
+    class MyTreeBuilder(ET.TreeBuilder):
+        _ns_stack = []
+        _last_element = None
+
+        def end(self, element):
+            self._last_element = ET.TreeBuilder.end(self, element)
+            return self._last_element
+
+        def start_ns(self, prefix, uri):
+            ET.register_namespace(prefix, uri)
+            self._ns_stack.append((prefix, uri))
+            return (prefix, uri)
+
+        def end_ns(self, _prefix):
+            prefix, uri = self._ns_stack.pop()
+            self._last_element.virtinst_add_namespace(prefix, uri)
+            namespaces[prefix] = uri
+            return prefix
+
+    builder = MyTreeBuilder(element_factory=MyElement, insert_comments=True)
+    parser = ET.XMLParser(target=builder)
+    parser.feed(xml)
+    node = parser.close()
+    return node, namespaces
+
+
+def _convert_qname(tag, namespaces):
+    if tag and tag.startswith("{"):
+        uri, tag = tag[1:].rsplit("}", 1)
+        for key, val in namespaces.items():
+            if uri == val:
+                tag = key + ":" + tag
+                break
+    return tag
+
+
+def _serialize_node(write, elem, namespaces):
+    # XXX derived from _serialize_xml
+    tag = elem.tag
+    text = elem.text
+    if tag is ET.Comment:
+        write("<!--%s-->" % text)
+    else:
+        use_ns = elem.virtinst_namespaces.copy()
+        use_ns.update(namespaces)
+
+        tag = _convert_qname(tag, use_ns)
+
+        if tag is None:
+            if text:
+                write(ET._escape_cdata(txt))
+            for e in elem:
+                _serialize_node(write, e, namespaces)
+        else:
+            write("<" + tag)
+            for nsprefix, nsuri in elem.virtinst_namespaces.items():
+                write(' xmlns:%s="%s"' % (nsprefix, nsuri))
+            for k, v in list(elem.items()):
+                k = _convert_qname(k, use_ns)
+                v = ET._escape_attrib(v)
+                write(' %s="%s"' % (k, v))
+
+            if text or len(elem):
+                write(">")
+                if text:
+                    write(ET._escape_cdata(text))
+                for e in elem:
+                    _serialize_node(write, e, namespaces)
+                write("</" + tag + ">")
+            else:
+                write("/>")
+
+    if elem.tail:
+        write(ET._escape_cdata(elem.tail))
+
+
+def _tostring(node, namespaces):
+    import io
+
+    stream = io.StringIO()
+
+    _serialize_node(stream.write, node, namespaces)
+    ret = stream.getvalue()
+    return ret.rstrip()
+
+
 class ETreeAPI(XMLBase):
     def __init__(self, parsexml):
         XMLBase.__init__(self)
-        self._et = ET.ElementTree(self._node_from_xml(parsexml))
-
-        for _k, _v in XMLBase.NAMESPACES.items():
-            ET.register_namespace(_k, _v)
+        node, namespaces = _fromstring(parsexml)
+        self._et = ET.ElementTree(node)
+        self._namespaces = namespaces
 
     #######################
     # Private helper APIs #
     #######################
 
     def _sanitize_xml(self, xml):
-        return xml.replace(" />", "/>")
+        return xml
 
     def _node_tostring(self, node):
-        return ET.tostring(node, encoding="unicode")
+        return _tostring(node, self._namespaces)
 
     def _node_from_xml(self, xml):
-        # We can't use ET.fromstring, since it throws away comments.
-        # This incantation should work for python 3.8+
-        parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
-        parser.feed(xml)
-        node = parser.close()
-        return node
+        return _fromstring(xml)[0]
 
     def _node_get_name(self, node):
-        return node.tag
+        name = _convert_qname(node.tag, self._namespaces)
+        if ":" in name:
+            name = name.split(":", 1)[1]
+        return name
 
     def _node_get_text(self, node):
         return node.text
@@ -55,6 +151,13 @@ class ETreeAPI(XMLBase):
 
     def _find(self, fullxpath):
         xpath = XPath(fullxpath).xpath
+
+        root = "/" + self._node_get_name(self._et.getroot())
+        if xpath.startswith(root):
+            # ElementTree explicitly warns that absolute xpaths don't
+            # work as expected, and need a prepended .
+            xpath = "." + xpath[len(root) :]
+
         node = self._et.find(xpath, self.NAMESPACES)
         if node is None:
             return None
@@ -116,12 +219,27 @@ class ETreeAPI(XMLBase):
 
     def _node_new(self, xpathseg, _parentnode):
         newname = xpathseg.nodename
-        if xpathseg.nsname:
-            newname = "{%s}%s" % (self.NAMESPACES[xpathseg.nsname], newname)
-        return ET.Element(newname)
+        nsname = xpathseg.nsname
+        nsuri = self.NAMESPACES.get(nsname, None)
+
+        if nsname:
+            newname = "{%s}%s" % (nsuri, newname)
+        element = MyElement(newname)
+        if nsname and nsname not in self._namespaces:
+            self._namespaces[nsname] = nsuri
+            element.virtinst_add_namespace(nsname, nsuri)
+        return element
 
     def _node_replace_child(self, xpath, newnode):
-        raise NotImplementedError()
+        oldnode = self._find(xpath)
+        parentnode = self._find(xpath + "...")
+        for idx, elem in list(enumerate(parentnode)):
+            if elem != oldnode:
+                continue
+            newnode.tail = oldnode.tail
+            parentnode.remove(oldnode)
+            parentnode.insert(idx, newnode)
+            break
 
     #####################
     # XML editting APIs #
