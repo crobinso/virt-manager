@@ -12,7 +12,7 @@ from .xmlbase import XMLBase, XPath
 class ETreeAPI(XMLBase):
     def __init__(self, parsexml):
         XMLBase.__init__(self)
-        self._et = ET.ElementTree(ET.fromstring(parsexml))
+        self._et = ET.ElementTree(self._node_from_xml(parsexml))
 
         for _k, _v in XMLBase.NAMESPACES.items():
             ET.register_namespace(_k, _v)
@@ -28,7 +28,12 @@ class ETreeAPI(XMLBase):
         return ET.tostring(node, encoding="unicode")
 
     def _node_from_xml(self, xml):
-        return ET.fromstring(xml)
+        # We can't use ET.fromstring, since it throws away comments.
+        # This incantation should work for python 3.8+
+        parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+        parser.feed(xml)
+        node = parser.close()
+        return node
 
     def _node_get_name(self, node):
         return node.tag
