@@ -4,16 +4,18 @@
 # This work is licensed under the GNU GPLv2 or later.
 # See the COPYING file in the top-level directory.
 
+import xml.etree.ElementTree as ET
+
 from .xmlbase import XMLBase, XPath
 
 
 class ETreeAPI(XMLBase):
-    for _k, _v in XMLBase.NAMESPACES.items():
-        ET.register_namespace(_k, _v)
-
     def __init__(self, parsexml):
         XMLBase.__init__(self)
         self._et = ET.ElementTree(ET.fromstring(parsexml))
+
+        for _k, _v in XMLBase.NAMESPACES.items():
+            ET.register_namespace(_k, _v)
 
     #######################
     # Private helper APIs #
@@ -58,7 +60,7 @@ class ETreeAPI(XMLBase):
     ###############
 
     def copy_api(self):
-        return XMLAPI(ET.tostring(self._et.getroot(), encoding="unicode"))
+        return ETreeAPI(self._node_tostring(self._et.getroot()))
 
     def count(self, xpath):
         return len(self._et.findall(xpath, self.NAMESPACES) or [])
